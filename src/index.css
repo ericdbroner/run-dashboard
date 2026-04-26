@@ -1,0 +1,241 @@
+:root {
+  color-scheme: light;
+  font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  line-height: 1.35;
+  background: #f3f6f8;
+  color: #1a252f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #eff4f7 0%, #f9fbfc 60%, #ffffff 100%);
+}
+
+.app-shell {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app-header {
+  margin-bottom: 16px;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.app-header p {
+  margin: 6px 0 0;
+  color: #51626f;
+}
+
+.layout-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(380px, 0.9fr);
+  gap: 16px;
+}
+
+.calendar-pane,
+.detail-pane {
+  background: #ffffff;
+  border: 1px solid #d8e2e8;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 20px rgba(20, 34, 45, 0.06);
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.calendar-header h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.calendar-header button,
+.card-actions button,
+.template-row button {
+  border: 1px solid #b6c8d3;
+  border-radius: 8px;
+  background: #f5fafc;
+  color: #223340;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.calendar-header button:hover,
+.card-actions button:hover,
+.template-row button:hover {
+  background: #e8f2f7;
+}
+
+.weekday-row,
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.weekday-cell {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #60717f;
+  padding: 6px 0;
+}
+
+.month-grid {
+  gap: 4px;
+}
+
+.day-cell {
+  min-height: 70px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid #d3dee6;
+  background: #ffffff;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.day-cell.selected {
+  border-color: #1f6f8a;
+  background: #ecf8fd;
+}
+
+.day-cell.outside {
+  color: #8fa0ad;
+  background: #f6f9fb;
+}
+
+.day-number {
+  font-weight: 600;
+}
+
+.day-count {
+  align-self: flex-end;
+  background: #1f6f8a;
+  color: white;
+  border-radius: 999px;
+  min-width: 22px;
+  text-align: center;
+  padding: 1px 6px;
+  font-size: 0.76rem;
+}
+
+.detail-pane h2 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+}
+
+.template-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.template-row select,
+.status-row select,
+.editor-form input,
+.editor-form select,
+.editor-form textarea {
+  border: 1px solid #b8c7d1;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  width: 100%;
+}
+
+.workout-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workout-card {
+  border: 1px solid #d4e0e8;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.workout-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.workout-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.meta {
+  color: #5c6e7b;
+  margin: 6px 0;
+  font-size: 0.92rem;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.card-actions .danger {
+  border-color: #d28d8d;
+  background: #fff2f2;
+  color: #7d2020;
+}
+
+.status-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.editor-form {
+  display: grid;
+  gap: 8px;
+}
+
+.editor-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.92rem;
+}
+
+.error-banner {
+  margin: 0 0 10px;
+  background: #fff0f0;
+  border: 1px solid #e1afaf;
+  color: #8e2f2f;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    padding: 14px;
+  }
+
+  .layout-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .day-cell {
+    min-height: 60px;
+  }
+}
