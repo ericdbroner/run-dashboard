@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DayDetailPanel } from "./components/DayDetailPanel";
 import { MonthCalendar } from "./components/MonthCalendar";
-import { currentMonthISO, monthRangeISO, todayISO } from "./lib/date";
+import { VdotManager } from "./components/VdotManager";
+import { monthGridRangeISO, monthWeekStartISOs } from "./lib/calendar";
+import { currentMonthISO, isDateISOInRange, todayISO } from "./lib/date";
+import { buildWeekMetrics, resolveActiveVdotProfile } from "./lib/weeklyMetrics";
 import { createDexiePlannerRepository } from "./repository/DexiePlannerRepository";
 import type { PlannerRepository } from "./repository/PlannerRepository";
 import type {
   CreateWorkoutInput,
   PlannerPreferences,
-  Template,
   UpdateWorkoutInput,
+  VdotProfile,
   Workout,
   WorkoutStatus
 } from "./types/planner";
@@ -25,59 +28,65 @@ function defaultPreferences(): PlannerPreferences {
 }
 
 export default function App({ repository }: AppProps) {
-  const plannerRepository = useMemo(
-    () => repository ?? createDexiePlannerRepository(),
-    [repository]
-  );
+  const plannerRepository = useMemo(() => repository ?? createDexiePlannerRepository(), [repository]);
 
   const [monthISO, setMonthISO] = useState(currentMonthISO());
   const [selectedDateISO, setSelectedDateISO] = useState(todayISO());
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [monthWorkouts, setMonthWorkouts] = useState<Workout[]>([]);
+  const [monthVisibleWorkouts, setMonthVisibleWorkouts] = useState<Workout[]>([]);
+  const [monthAnalysisWorkouts, setMonthAnalysisWorkouts] = useState<Workout[]>([]);
   const [dayWorkouts, setDayWorkouts] = useState<Workout[]>([]);
+  const [vdotProfiles, setVdotProfiles] = useState<VdotProfile[]>([]);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [ready, setReady] = useState(false);
 
-  async function refreshMonth(targetMonthISO: string): Promise<void> {
-    const range = monthRangeISO(targetMonthISO);
-    const workouts = await plannerRepository.listByDateRange(range.startISO, range.endISO);
-    setMonthWorkouts(workouts);
-  }
+  const loadVdotProfiles = useCallback(async () => {
+    const profiles = await plannerRepository.listVdotProfiles();
+    setVdotProfiles(profiles);
+  }, [plannerRepository]);
 
-  async function refreshDay(targetDateISO: string): Promise<void> {
-    const workouts = await plannerRepository.listByDay(targetDateISO);
-    setDayWorkouts(workouts);
-  }
+  const loadMonthWorkouts = useCallback(
+    async (targetMonthISO: string) => {
+      const range = monthGridRangeISO(targetMonthISO);
+      const workouts = await plannerRepository.listByDateRange(range.analysisStartISO, range.analysisEndISO);
+
+      setMonthAnalysisWorkouts(workouts);
+      setMonthVisibleWorkouts(
+        workouts.filter((workout) => isDateISOInRange(workout.dateISO, range.visibleStartISO, range.visibleEndISO))
+      );
+    },
+    [plannerRepository]
+  );
+
+  const loadDayWorkouts = useCallback(
+    async (targetDateISO: string) => {
+      const workouts = await plannerRepository.listByDay(targetDateISO);
+      setDayWorkouts(workouts);
+    },
+    [plannerRepository]
+  );
 
   useEffect(() => {
     let active = true;
 
     async function initialize() {
       try {
-        const [loadedTemplates, preferences] = await Promise.all([
-          plannerRepository.listTemplates(),
-          plannerRepository.getPreferences().catch(() => defaultPreferences())
-        ]);
+        const preferences = await plannerRepository.getPreferences().catch(() => defaultPreferences());
 
         if (!active) {
           return;
         }
 
-        setTemplates(loadedTemplates);
         setMonthISO(preferences.lastViewedMonthISO);
-
-        const range = monthRangeISO(preferences.lastViewedMonthISO);
-        const [monthData, dayData] = await Promise.all([
-          plannerRepository.listByDateRange(range.startISO, range.endISO),
-          plannerRepository.listByDay(todayISO())
+        await Promise.all([
+          loadVdotProfiles(),
+          loadMonthWorkouts(preferences.lastViewedMonthISO),
+          loadDayWorkouts(selectedDateISO)
         ]);
 
         if (!active) {
           return;
         }
 
-        setMonthWorkouts(monthData);
-        setDayWorkouts(dayData);
         setReady(true);
       } catch (error) {
         if (!active) {
@@ -92,7 +101,7 @@ export default function App({ repository }: AppProps) {
     return () => {
       active = false;
     };
-  }, [plannerRepository]);
+  }, [loadDayWorkouts, loadMonthWorkouts, loadVdotProfiles, plannerRepository, selectedDateISO]);
 
   useEffect(() => {
     if (!ready) {
@@ -100,50 +109,76 @@ export default function App({ repository }: AppProps) {
     }
 
     void plannerRepository.updatePreferences({ lastViewedMonthISO: monthISO });
-    void refreshMonth(monthISO).catch((error: unknown) => {
+    void loadMonthWorkouts(monthISO).catch((error: unknown) => {
       setErrorMessage(error instanceof Error ? error.message : "Failed to load month data.");
     });
-  }, [monthISO, plannerRepository, ready]);
+  }, [monthISO, plannerRepository, ready, loadMonthWorkouts]);
 
   useEffect(() => {
     if (!ready) {
       return;
     }
 
-    void refreshDay(selectedDateISO).catch((error: unknown) => {
+    void loadDayWorkouts(selectedDateISO).catch((error: unknown) => {
       setErrorMessage(error instanceof Error ? error.message : "Failed to load day data.");
     });
-  }, [plannerRepository, ready, selectedDateISO]);
+  }, [loadDayWorkouts, ready, selectedDateISO]);
 
-  async function applyMutation(operation: () => Promise<void>): Promise<void> {
+  const activeVdot = useMemo(
+    () => resolveActiveVdotProfile(vdotProfiles, selectedDateISO),
+    [selectedDateISO, vdotProfiles]
+  );
+
+  const weekMetricsByStart = useMemo(() => {
+    const starts = monthWeekStartISOs(monthISO);
+    return Object.fromEntries(
+      starts.map((startISO) => [startISO, buildWeekMetrics(startISO, monthAnalysisWorkouts, vdotProfiles)])
+    );
+  }, [monthAnalysisWorkouts, monthISO, vdotProfiles]);
+
+  const resolveVdotForDate = useCallback(
+    (dateISO: string) => resolveActiveVdotProfile(vdotProfiles, dateISO),
+    [vdotProfiles]
+  );
+
+  async function applyWorkoutMutation(operation: () => Promise<void>): Promise<void> {
     try {
       await operation();
-      await Promise.all([refreshMonth(monthISO), refreshDay(selectedDateISO)]);
+      await Promise.all([loadMonthWorkouts(monthISO), loadDayWorkouts(selectedDateISO)]);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Planner operation failed.");
     }
   }
 
-  async function createWorkoutFromTemplate(input: CreateWorkoutInput): Promise<void> {
-    await applyMutation(async () => {
+  async function applyVdotMutation(operation: () => Promise<void>): Promise<void> {
+    try {
+      await operation();
+      await Promise.all([loadVdotProfiles(), loadMonthWorkouts(monthISO), loadDayWorkouts(selectedDateISO)]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "VDOT operation failed.");
+    }
+  }
+
+  async function createWorkout(input: CreateWorkoutInput): Promise<void> {
+    await applyWorkoutMutation(async () => {
       await plannerRepository.createWorkout(input);
     });
   }
 
   async function updateWorkout(id: string, patch: UpdateWorkoutInput): Promise<void> {
-    await applyMutation(async () => {
+    await applyWorkoutMutation(async () => {
       await plannerRepository.updateWorkout(id, patch);
     });
   }
 
   async function setWorkoutStatus(id: string, status: WorkoutStatus): Promise<void> {
-    await applyMutation(async () => {
+    await applyWorkoutMutation(async () => {
       await plannerRepository.setStatus(id, status);
     });
   }
 
   async function deleteWorkout(id: string): Promise<void> {
-    await applyMutation(async () => {
+    await applyWorkoutMutation(async () => {
       await plannerRepository.deleteWorkout(id);
     });
   }
@@ -153,17 +188,37 @@ export default function App({ repository }: AppProps) {
       <header className="app-header">
         <div>
           <h1>Run Planner Desktop</h1>
-          <p>Local-only calendar planner for running workouts.</p>
+          <p>VDOT-based planner with structured workout entry and weekly distribution analytics.</p>
         </div>
       </header>
 
       {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
 
+      <VdotManager
+        profiles={vdotProfiles}
+        onCreate={async (input) => {
+          await applyVdotMutation(async () => {
+            await plannerRepository.createVdotProfile(input);
+          });
+        }}
+        onUpdate={async (id, patch) => {
+          await applyVdotMutation(async () => {
+            await plannerRepository.updateVdotProfile(id, patch);
+          });
+        }}
+        onDelete={async (id) => {
+          await applyVdotMutation(async () => {
+            await plannerRepository.deleteVdotProfile(id);
+          });
+        }}
+      />
+
       <div className="layout-grid">
         <MonthCalendar
           monthISO={monthISO}
           selectedDateISO={selectedDateISO}
-          workouts={monthWorkouts}
+          workouts={monthVisibleWorkouts}
+          weekMetricsByStart={weekMetricsByStart}
           onChangeMonth={setMonthISO}
           onSelectDate={setSelectedDateISO}
         />
@@ -171,8 +226,9 @@ export default function App({ repository }: AppProps) {
         <DayDetailPanel
           dateISO={selectedDateISO}
           workouts={dayWorkouts}
-          templates={templates}
-          onCreateFromTemplate={createWorkoutFromTemplate}
+          activeVdot={activeVdot}
+          resolveVdotForDate={resolveVdotForDate}
+          onCreateWorkout={createWorkout}
           onUpdateWorkout={updateWorkout}
           onSetStatus={setWorkoutStatus}
           onDeleteWorkout={deleteWorkout}

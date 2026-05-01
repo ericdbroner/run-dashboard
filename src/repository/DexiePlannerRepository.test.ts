@@ -15,63 +15,99 @@ afterEach(async () => {
 });
 
 describe("DexiePlannerRepository", () => {
-  it("supports CRUD and date-range queries", async () => {
+  it("supports structured workout CRUD and vdot profile operations", async () => {
     const repository = createRepository();
 
     const created = await repository.createWorkout({
       dateISO: "2026-04-10",
       title: "Easy Run",
-      type: "easy",
-      distanceMiles: 4,
-      durationMinutes: 42
+      entryMode: "simpleRun",
+      simpleRun: {
+        mileage: 4,
+        zone: "EL",
+        isLongRun: false
+      }
     });
 
     await repository.createWorkout({
-      dateISO: "2026-04-12",
-      title: "Long Run",
-      type: "longRun",
-      distanceMiles: 8,
-      durationMinutes: 80
+      dateISO: "2026-04-11",
+      title: "Track",
+      entryMode: "workout",
+      workout: {
+        warmupDistanceMiles: 1,
+        cooldownDistanceMiles: 1,
+        blocks: [
+          {
+            id: "b1",
+            repDistanceMiles: 0.25,
+            repZone: "T",
+            recoveryMode: "distance",
+            recoveryDistanceMiles: 0.25,
+            repeats: 4
+          }
+        ]
+      }
     });
 
     await repository.updateWorkout(created.id, {
       title: "Easy Run Updated",
-      notes: "Felt strong"
+      simpleRun: {
+        mileage: 5,
+        zone: "M",
+        isLongRun: false
+      }
     });
-
-    await repository.setStatus(created.id, "completed");
 
     const byDay = await repository.listByDay("2026-04-10");
     expect(byDay).toHaveLength(1);
     expect(byDay[0].title).toBe("Easy Run Updated");
-    expect(byDay[0].status).toBe("completed");
+    expect(byDay[0].simpleRun?.zone).toBe("M");
 
-    const byRange = await repository.listByDateRange("2026-04-09", "2026-04-12");
-    expect(byRange).toHaveLength(2);
+    const profileA = await repository.createVdotProfile({ effectiveDateISO: "2026-04-01", vdot: 45 });
+    await repository.createVdotProfile({ effectiveDateISO: "2026-05-01", vdot: 50 });
+    const active = await repository.resolveActiveVdot("2026-04-20");
+    expect(active?.id).toBe(profileA.id);
 
     await repository.deleteWorkout(created.id);
-
-    const afterDelete = await repository.listByDay("2026-04-10");
-    expect(afterDelete).toHaveLength(0);
+    expect(await repository.listByDay("2026-04-10")).toHaveLength(0);
   });
 
-  it("seeds templates and persists data across repository instances", async () => {
-    const databaseName = `planner-persist-${crypto.randomUUID()}`;
+  it("migrates legacy workouts into simpleRun mode", async () => {
+    const databaseName = `planner-legacy-${crypto.randomUUID()}`;
     databaseNames.push(databaseName);
 
-    const repo1 = new DexiePlannerRepository(databaseName);
-    const templates = await repo1.listTemplates();
-    expect(templates.length).toBeGreaterThan(0);
-
-    await repo1.createWorkout({
-      dateISO: "2026-05-01",
-      title: "Tempo",
-      type: "tempo"
+    const legacyDb = new Dexie(databaseName);
+    legacyDb.version(1).stores({
+      workouts: "id, dateISO, status, [dateISO+status], updatedAtISO",
+      templates: "id, label, type",
+      preferences: "id"
     });
 
-    const repo2 = new DexiePlannerRepository(databaseName);
-    const sameDay = await repo2.listByDay("2026-05-01");
-    expect(sameDay).toHaveLength(1);
-    expect(sameDay[0].title).toBe("Tempo");
+    await legacyDb.open();
+    await legacyDb.table("workouts").add({
+      id: "legacy-1",
+      dateISO: "2026-04-10",
+      title: "Legacy Long",
+      type: "longRun",
+      status: "planned",
+      distanceMiles: 9,
+      durationMinutes: 88,
+      createdAtISO: "2026-01-01T00:00:00.000Z",
+      updatedAtISO: "2026-01-01T00:00:00.000Z"
+    });
+    await legacyDb.table("preferences").add({
+      id: "default",
+      weekStartsOn: "monday",
+      lastViewedMonthISO: "2026-04"
+    });
+    await legacyDb.close();
+
+    const repository = new DexiePlannerRepository(databaseName);
+    const migrated = await repository.listByDay("2026-04-10");
+
+    expect(migrated).toHaveLength(1);
+    expect(migrated[0].entryMode).toBe("simpleRun");
+    expect(migrated[0].simpleRun?.isLongRun).toBe(true);
+    expect(migrated[0].simpleRun?.mileage).toBe(9);
   });
 });

@@ -26,8 +26,13 @@ describe("calendar utils", () => {
         id: "b",
         dateISO: "2026-04-04",
         title: "Easy",
-        type: "easy",
+        entryMode: "simpleRun",
         status: "planned",
+        simpleRun: {
+          mileage: 4,
+          zone: "EL",
+          isLongRun: false
+        },
         createdAtISO: "t",
         updatedAtISO: "t"
       },
@@ -35,8 +40,13 @@ describe("calendar utils", () => {
         id: "a",
         dateISO: "2026-04-04",
         title: "Easy",
-        type: "easy",
+        entryMode: "simpleRun",
         status: "planned",
+        simpleRun: {
+          mileage: 4,
+          zone: "EL",
+          isLongRun: false
+        },
         createdAtISO: "t",
         updatedAtISO: "t"
       },
@@ -44,8 +54,13 @@ describe("calendar utils", () => {
         id: "z",
         dateISO: "2026-04-03",
         title: "Threshold",
-        type: "threshold",
+        entryMode: "simpleRun",
         status: "planned",
+        simpleRun: {
+          mileage: 6,
+          zone: "T",
+          isLongRun: false
+        },
         createdAtISO: "t",
         updatedAtISO: "t"
       }

@@ -1,4 +1,4 @@
-import { addMonths, endOfMonth, format, startOfMonth } from "date-fns";
+import { addDays, addMonths, endOfMonth, format, startOfMonth, startOfWeek } from "date-fns";
 
 export function toDateISO(date: Date): string {
   const year = date.getFullYear();
@@ -53,6 +53,21 @@ export function monthRangeISO(monthISO: string): { startISO: string; endISO: str
     startISO: toDateISO(start),
     endISO: toDateISO(end)
   };
+}
+
+export function startOfWeekISO(dateISO: string): string {
+  return toDateISO(startOfWeek(parseDateISO(dateISO), { weekStartsOn: 1 }));
+}
+
+export function addDaysISO(dateISO: string, days: number): string {
+  return toDateISO(addDays(parseDateISO(dateISO), days));
+}
+
+export function isDateISOInRange(dateISO: string, startISO: string, endISO: string): boolean {
+  const normalizedDate = normalizeDateISO(dateISO);
+  const normalizedStart = normalizeDateISO(startISO);
+  const normalizedEnd = normalizeDateISO(endISO);
+  return normalizedDate >= normalizedStart && normalizedDate <= normalizedEnd;
 }
 
 export function labelForDateISO(dateISO: string): string {

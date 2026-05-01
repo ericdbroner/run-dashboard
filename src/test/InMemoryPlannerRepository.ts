@@ -1,12 +1,16 @@
 import { currentMonthISO, normalizeDateISO } from "../lib/date";
+import { MAX_VDOT, MIN_VDOT } from "../lib/vdotChart";
 import { sortWorkoutsDeterministically } from "../lib/sort";
 import { DEFAULT_TEMPLATES } from "../repository/defaultTemplates";
 import type { PlannerRepository } from "../repository/PlannerRepository";
 import type {
+  CreateVdotProfileInput,
   CreateWorkoutInput,
   PlannerPreferences,
   Template,
+  UpdateVdotProfileInput,
   UpdateWorkoutInput,
+  VdotProfile,
   Workout,
   WorkoutStatus
 } from "../types/planner";
@@ -15,27 +19,48 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
-function toOptionalNumber(value: number | undefined): number | undefined {
-  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
-    return undefined;
+function sanitizeWorkout(input: CreateWorkoutInput | UpdateWorkoutInput, fallbackMode: Workout["entryMode"] = "simpleRun") {
+  const entryMode = input.entryMode ?? fallbackMode;
+  if (entryMode === "simpleRun") {
+    return {
+      entryMode,
+      simpleRun: {
+        mileage: Math.max(0, input.simpleRun?.mileage ?? 0),
+        zone: input.simpleRun?.zone ?? "EL",
+        isLongRun: input.simpleRun?.isLongRun ?? false
+      },
+      workout: undefined,
+      notes: input.notes?.trim() || undefined
+    } as const;
   }
 
-  return value;
-}
-
-function toOptionalText(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return {
+    entryMode,
+    simpleRun: undefined,
+    workout: {
+      warmupDistanceMiles: Math.max(0, input.workout?.warmupDistanceMiles ?? 0),
+      cooldownDistanceMiles: Math.max(0, input.workout?.cooldownDistanceMiles ?? 0),
+      blocks: (input.workout?.blocks ?? []).map((block) => ({
+        id: block.id,
+        repDistanceMiles: Math.max(0, block.repDistanceMiles),
+        repZone: block.repZone,
+        recoveryMode: block.recoveryMode,
+        recoveryDistanceMiles:
+          block.recoveryMode === "distance" ? Math.max(0, block.recoveryDistanceMiles ?? 0) : undefined,
+        recoveryDurationMinutes:
+          block.recoveryMode === "time" ? Math.max(0, block.recoveryDurationMinutes ?? 0) : undefined,
+        repeats: Math.max(1, Math.floor(block.repeats || 1))
+      }))
+    },
+    notes: input.notes?.trim() || undefined
+  } as const;
 }
 
 export class InMemoryPlannerRepository implements PlannerRepository {
   private workouts: Workout[] = [];
   private readonly templates: Template[];
   private preferences: PlannerPreferences;
+  private vdotProfiles: VdotProfile[] = [];
 
   constructor() {
     this.templates = [...DEFAULT_TEMPLATES].sort((a, b) => a.label.localeCompare(b.label));
@@ -61,17 +86,16 @@ export class InMemoryPlannerRepository implements PlannerRepository {
 
   async createWorkout(input: CreateWorkoutInput): Promise<Workout> {
     const timestamp = nowISO();
+    const details = sanitizeWorkout(input, input.entryMode);
+
     const workout: Workout = {
       id: crypto.randomUUID(),
       dateISO: normalizeDateISO(input.dateISO),
       title: input.title.trim(),
-      type: input.type,
       status: input.status ?? "planned",
-      distanceMiles: toOptionalNumber(input.distanceMiles),
-      durationMinutes: toOptionalNumber(input.durationMinutes),
-      notes: toOptionalText(input.notes),
       createdAtISO: timestamp,
-      updatedAtISO: timestamp
+      updatedAtISO: timestamp,
+      ...details
     };
 
     this.workouts.push(workout);
@@ -85,16 +109,24 @@ export class InMemoryPlannerRepository implements PlannerRepository {
     }
 
     const existing = this.workouts[index];
+    const details = sanitizeWorkout(
+      {
+        ...existing,
+        ...patch,
+        entryMode: patch.entryMode ?? existing.entryMode,
+        simpleRun: patch.simpleRun ?? existing.simpleRun,
+        workout: patch.workout ?? existing.workout
+      },
+      patch.entryMode ?? existing.entryMode
+    );
+
     const updated: Workout = {
       ...existing,
       dateISO: patch.dateISO ? normalizeDateISO(patch.dateISO) : existing.dateISO,
       title: patch.title ? patch.title.trim() : existing.title,
-      type: patch.type ?? existing.type,
-      distanceMiles: patch.distanceMiles === undefined ? existing.distanceMiles : toOptionalNumber(patch.distanceMiles),
-      durationMinutes:
-        patch.durationMinutes === undefined ? existing.durationMinutes : toOptionalNumber(patch.durationMinutes),
-      notes: patch.notes === undefined ? existing.notes : toOptionalText(patch.notes),
-      updatedAtISO: nowISO()
+      status: patch.status ?? existing.status,
+      updatedAtISO: nowISO(),
+      ...details
     };
 
     this.workouts[index] = updated;
@@ -123,6 +155,51 @@ export class InMemoryPlannerRepository implements PlannerRepository {
 
   async listTemplates(): Promise<Template[]> {
     return [...this.templates];
+  }
+
+  async listVdotProfiles(): Promise<VdotProfile[]> {
+    return [...this.vdotProfiles].sort((a, b) => a.effectiveDateISO.localeCompare(b.effectiveDateISO));
+  }
+
+  async createVdotProfile(input: CreateVdotProfileInput): Promise<VdotProfile> {
+    const profile: VdotProfile = {
+      id: crypto.randomUUID(),
+      effectiveDateISO: normalizeDateISO(input.effectiveDateISO),
+      vdot: Math.max(MIN_VDOT, Math.min(MAX_VDOT, Math.round(input.vdot)))
+    };
+
+    this.vdotProfiles.push(profile);
+    return profile;
+  }
+
+  async updateVdotProfile(id: string, patch: UpdateVdotProfileInput): Promise<VdotProfile> {
+    const index = this.vdotProfiles.findIndex((profile) => profile.id === id);
+    if (index < 0) {
+      throw new Error("VDOT profile not found");
+    }
+
+    const existing = this.vdotProfiles[index];
+    const updated: VdotProfile = {
+      ...existing,
+      effectiveDateISO: patch.effectiveDateISO ? normalizeDateISO(patch.effectiveDateISO) : existing.effectiveDateISO,
+      vdot: patch.vdot === undefined ? existing.vdot : Math.max(MIN_VDOT, Math.min(MAX_VDOT, Math.round(patch.vdot)))
+    };
+
+    this.vdotProfiles[index] = updated;
+    return updated;
+  }
+
+  async deleteVdotProfile(id: string): Promise<void> {
+    this.vdotProfiles = this.vdotProfiles.filter((profile) => profile.id !== id);
+  }
+
+  async resolveActiveVdot(dateISO: string): Promise<VdotProfile | null> {
+    const normalized = normalizeDateISO(dateISO);
+    const eligible = this.vdotProfiles
+      .filter((profile) => profile.effectiveDateISO <= normalized)
+      .sort((left, right) => right.effectiveDateISO.localeCompare(left.effectiveDateISO));
+
+    return eligible[0] ?? null;
   }
 
   async getPreferences(): Promise<PlannerPreferences> {
