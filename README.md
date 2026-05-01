@@ -18,6 +18,13 @@ npm install
 npm run dev
 ```
 
+Use this exact URL for day-to-day use:
+
+- `http://127.0.0.1:5173/`
+
+Important: IndexedDB is scoped to exact origin (`scheme + host + port`).
+If you switch to a different URL (for example `http://127.0.0.1:4173/` or `http://localhost:5173/`), you will see a different local database.
+
 ## Quality gates
 
 ```bash
